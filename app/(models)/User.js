@@ -5,9 +5,15 @@ mongoose.Promise = global.Promise;
 
 const userSchema = new Schema(
   {
-    name: String,
-    email: String,
-    password: String,
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    role: { type: String, enum: ['admin', 'employee'], default: 'employee' },
+    designation: { type: String, default: '' },
+    department: { type: String, default: '' },
+    contactNumber: { type: String, default: '' },
+    joiningDate: { type: Date, default: Date.now },
+    profilePhoto: { type: String, default: '' },
+    googleId: { type: String, unique: true, sparse: true },
   },
   {
     timestamps: true,

@@ -1,33 +1,23 @@
-import GitHubProvider from "next-auth/providers/github";
 import GoogleProvider from "next-auth/providers/google";
-import CredentialsProvider from "next-auth/providers/credentials";
 import User from "@/app/(models)/User";
-import bcrypt from "bcrypt";
 
 export const options = {
   providers: [
-    GitHubProvider({
-      profile(profile) {
-        console.log("Profile GitHub: ", profile);
-
-        let userRole = "GitHub User";
-        if (profile?.email == "jake@claritycoders.com") {
-          userRole = "admin";
-        }
-
-        return {
-          ...profile,
-          role: userRole,
-        };
-      },
-      clientId: process.env.GITHUB_ID,
-      clientSecret: process.env.GITHUB_Secret,
-    }),
     GoogleProvider({
       profile(profile) {
         console.log("Profile Google: ", profile);
 
-        let userRole = "Google User";
+        // Check if email is from allowed domain
+        if (!profile.email.endsWith('@citchennai.net')) {
+          throw new Error('Only @citchennai.net domain emails are allowed');
+        }
+
+        let userRole = "employee";
+        // Set admin role for specific email
+        if (profile?.email === "ravikrishnaj25@gmail.com") {
+          userRole = "admin";
+        }
+
         return {
           ...profile,
           id: profile.sub,
@@ -35,58 +25,61 @@ export const options = {
         };
       },
       clientId: process.env.GOOGLE_ID,
-      clientSecret: process.env.GOOGLE_Secret,
-    }),
-    CredentialsProvider({
-      name: "Credentials",
-      credentials: {
-        email: {
-          label: "email:",
-          type: "text",
-          placeholder: "your-email",
-        },
-        password: {
-          label: "password:",
-          type: "password",
-          placeholder: "your-password",
-        },
-      },
-      async authorize(credentials) {
-        try {
-          const foundUser = await User.findOne({ email: credentials.email })
-            .lean()
-            .exec();
-
-          if (foundUser) {
-            console.log("User Exists");
-            const match = await bcrypt.compare(
-              credentials.password,
-              foundUser.password
-            );
-
-            if (match) {
-              console.log("Good Pass");
-              delete foundUser.password;
-
-              foundUser["role"] = "Unverified Email";
-              return foundUser;
-            }
-          }
-        } catch (error) {
-          console.log(error);
-        }
-        return null;
-      },
+      clientSecret: process.env.GOOGLE_SECRET,
     }),
   ],
   callbacks: {
+    async signIn({ user, account, profile }) {
+      if (account.provider === "google") {
+        try {
+          // Check if user exists in database
+          let existingUser = await User.findOne({ email: user.email });
+          
+          if (!existingUser) {
+            // Create new user
+            await User.create({
+              name: user.name,
+              email: user.email,
+              role: user.role,
+              googleId: user.id,
+            });
+          } else {
+            // Update existing user's Google ID if not set
+            if (!existingUser.googleId) {
+              existingUser.googleId = user.id;
+              await existingUser.save();
+            }
+          }
+          return true;
+        } catch (error) {
+          console.log("Error saving user", error);
+          return false;
+        }
+      }
+      return true;
+    },
     async jwt({ token, user }) {
-      if (user) token.role = user.role;
+      if (user) {
+        token.role = user.role;
+      }
       return token;
     },
     async session({ session, token }) {
-      if (session?.user) session.user.role = token.role;
+      if (session?.user) {
+        session.user.role = token.role;
+        
+        // Fetch updated user data from database
+        const dbUser = await User.findOne({ email: session.user.email });
+        if (dbUser) {
+          session.user.role = dbUser.role;
+          session.user.id = dbUser._id.toString();
+        }
+      }
       return session;
     },
+  },
+  pages: {
+    signIn: '/',
+    error: '/auth/error',
   },
 };
